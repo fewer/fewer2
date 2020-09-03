@@ -1,5 +1,6 @@
 const flags = {
-	constructPhase: false
+	constructPhase: false,
+	buildTables: true
 };
 
 export default flags;

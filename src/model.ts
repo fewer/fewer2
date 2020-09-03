@@ -1,50 +1,79 @@
-import { AssociationType } from './associations';
 import flags from './flags';
 import { QueryBuilder } from './querybuilder';
 import tables from './tables';
 import { ColumnTypes, INTERNAL_TYPES } from './types';
 import { isAssociation, isColumn } from './utils/predicates';
 import generateTableName from './utils/generateTableName';
-import { createModelInstance, ModelInstance } from './modelinstance';
+import { ModelInstance } from './modelinstance';
+import { getConnection } from './connect';
 
 type ModelEvent = 'save' | 'destroy';
 type ModelEventHandler = () => void | Promise<void>;
 
 export class Model {
+	static tableName?: string;
+	[INTERNAL_TYPES.MODEL_META]: {
+		tableName: string;
+		primaryKey: string;
+		columns: Set<string>;
+	};
+
+	static getTableName() {
+		return this.tableName ?? generateTableName(this.name);
+	}
+
 	constructor(
 		please_use_create_to_construct_entities: typeof INTERNAL_TYPES.MODEL_CONSTRUCTOR,
+		bypassInitialize: boolean = false,
 	) {
 		if (
 			please_use_create_to_construct_entities !==
 			INTERNAL_TYPES.MODEL_CONSTRUCTOR
 		) {
 			throw new Error(
-				'Please do not create models with the new keyword directly. Instead, use Model.create().',
+				'Model instances cannot be created with the new keyword. Instead, use Model.create().',
 			);
 		}
 
 		flags.constructPhase = true;
 		Promise.resolve().then(() => {
+			if (!this[INTERNAL_TYPES.MODEL_META].primaryKey) {
+				throw new Error(
+					`No primary key was found for table "${
+						this[INTERNAL_TYPES.MODEL_META].tableName
+					}"`,
+				);
+			}
 			flags.constructPhase = false;
 		});
 
 		// TODO: Maybe initalize will need to be called somewhere else?
-		if (this.initialize) {
+		if (!bypassInitialize && this.initialize) {
 			this.initialize();
 		}
 
-		const TABLE_NAME =
-			(this.constructor as any).tableName ??
-			generateTableName(this.constructor.name);
+		this[INTERNAL_TYPES.MODEL_META] = {
+			primaryKey: '',
+			tableName: ((this
+				.constructor as unknown) as typeof Model).getTableName(),
+			columns: new Set(),
+		};
 
-		let tableColumns = tables.get(TABLE_NAME);
-		if (!tableColumns) {
-			tableColumns = new Map();
-			tables.set(TABLE_NAME, tableColumns);
+		let tableColumns: Map<string, any> | undefined;
+		if (flags.buildTables) {
+			tableColumns = tables.get(
+				this[INTERNAL_TYPES.MODEL_META].tableName,
+			);
+			if (!tableColumns) {
+				tableColumns = new Map();
+				tables.set(
+					this[INTERNAL_TYPES.MODEL_META].tableName,
+					tableColumns,
+				);
+			}
 		}
 
-		// TODO: Investigate if we need a getPrototypeOf trap to make instanceof work
-		return new Proxy(this, {
+		return new Proxy<any>(this, {
 			set: (target, property, value) => {
 				if (isAssociation(value) || isColumn(value)) {
 					if (typeof property !== 'string') {
@@ -53,58 +82,123 @@ export class Model {
 						);
 					}
 
-					if (property in target) {
+					if (property in Model.prototype) {
 						throw new Error(
 							`The key "${property}" is reserved by fewer, and may not be used as a column name.`,
 						);
 					}
 
 					if (isColumn(value)) {
-						tableColumns!.set(property, value);
+						if (flags.buildTables) {
+							tableColumns!.set(
+								property,
+								value[INTERNAL_TYPES.COLUMN_META],
+							);
+						}
+
+						if (
+							value[INTERNAL_TYPES.COLUMN_META].config?.primaryKey
+						) {
+							if (this[INTERNAL_TYPES.MODEL_META].primaryKey) {
+								throw new Error(
+									'You cannot define multiple primary keys.',
+								);
+							}
+							this[
+								INTERNAL_TYPES.MODEL_META
+							].primaryKey = property;
+						}
+
+						this[INTERNAL_TYPES.MODEL_META].columns.add(property);
+
+						target[property] =
+							value[INTERNAL_TYPES.COLUMN_META].value;
 					}
 
-					if (
-						isAssociation(value) &&
-						value[INTERNAL_TYPES.ASSOCIATION_META].type ===
-							AssociationType.BELONGS_TO
-					) {
-						tableColumns!.set(`${property}Id`, value);
-					}
+					// TODO: Add association columns:
+					// if (
+					// 	isAssociation(value) &&
+					// 	value[INTERNAL_TYPES.ASSOCIATION_META].type ===
+					// 		AssociationType.BELONGS_TO
+					// ) {
+					// 	tableColumns!.set(
+					// 		`${property}Id`,
+					// 		value[INTERNAL_TYPES.ASSOCIATION_META],
+					// 	);
+					// }
+				} else {
+					target[property] = value;
 				}
 
-				// @ts-ignore: Proxies are hard to type.
-				return (target[property] = value);
+				return true;
 			},
 		});
 	}
 
-	static find<T extends typeof Model>(
-		this: T,
-		primaryKey: number | string,
-	): QueryBuilder<T> {
-		return {} as any;
+	/**
+	 * Ensure that a model's tables have been initalized. This should only
+	 * be used internally, and at some point probably should be removed.
+	 */
+	static preload() {
+		flags.buildTables = true;
+		new this(INTERNAL_TYPES.MODEL_CONSTRUCTOR, true);
+		flags.buildTables = false;
+	}
+
+	static find<T extends typeof Model>(this: T, primaryKey: number | string) {
+		// TODO: This is a hack. Instead what we want to do is have a method to get the model meta, which basically does what preload does,
+		// but caches the result so that we can statically get the model meta.
+		const modelInstance = new this(INTERNAL_TYPES.MODEL_CONSTRUCTOR, true);
+		return new QueryBuilder<T>({
+			modelType: this,
+			tableName: this.getTableName(),
+			where: {
+				[modelInstance[INTERNAL_TYPES.MODEL_META]
+					.primaryKey]: primaryKey,
+			},
+		}).first();
 	}
 
 	static where<T extends typeof Model>(
 		this: T,
 		conditions: Partial<ColumnTypes<T>>,
-	): QueryBuilder<T> {
-		return {} as any;
+	) {
+		return new QueryBuilder<T>({
+			modelType: this,
+			tableName: this.getTableName(),
+		});
 	}
 
 	static create<T extends typeof Model>(
 		this: T,
 		obj: Partial<ColumnTypes<T>>,
 	): ModelInstance<T> {
-		return createModelInstance(this, obj);
+		const instance = new this(INTERNAL_TYPES.MODEL_CONSTRUCTOR);
+		Object.assign(instance, obj);
+		return instance;
 	}
 
 	private eventListeners = new Map<ModelEvent, Set<ModelEventHandler>>();
 
 	initialize?(): void;
 
-	async save() {
+	async save<T>(this: T): Promise<T> {
 		await this.trigger('save');
+		const connection = getConnection();
+
+		const insertObject: Record<string, any> = {};
+
+		for (const column of this[INTERNAL_TYPES.MODEL_META].columns) {
+			insertObject[column] = this[column];
+		}
+
+		const [id] = await connection
+			.table(this[INTERNAL_TYPES.MODEL_META].tableName)
+			.insert(insertObject);
+
+		// @ts-ignore: I promise this is a column:s
+		this[this[INTERNAL_TYPES.MODEL_META].primaryKey] = id;
+
 		return this;
 	}
 

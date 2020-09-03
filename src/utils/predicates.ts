@@ -1,8 +1,8 @@
 import { Association } from "../associations";
-import { Column } from "../columns";
+import { Column, ColumnMeta } from "../columns";
 import { INTERNAL_TYPES } from "../types";
 
-export function isColumn(value: any): value is Column<any> {
+export function isColumn(value: any): value is ColumnMeta {
 	return value && value[INTERNAL_TYPES.COLUMN_META];
 }
 

@@ -1,48 +1,67 @@
-import { belongsTo, hasMany } from "./associations";
-import { Model, string, number } from "./index";
-import tables from "./tables";
+import { belongsTo, hasMany } from './associations';
+import { connect } from './connect';
+import { incrementing, int, text } from './databases/sqlite';
+import { Model } from './model';
+import { createTables } from './tables';
 
 class User extends Model {
-  id = number({ primaryKey: true });
-  name = string();
-  age = number({ nullable: true });
+	id = incrementing({ primaryKey: true });
+	name = text();
+	age = int({ nullable: true });
 
-  passwordHash = string();
-  password?: string;
+	passwordHash = text();
+	password?: string;
 
-  posts = hasMany(Post);
+	posts = hasMany(Post);
 
-  getName() {
-    console.log(this.name.get());
-  }
+	getName() {
+		return this.name;
+	}
 
-  initialize() {
-    this.on("save", async () => {
-      if (this.password) {
-        this.passwordHash.set(this.password.toLowerCase());
-      }
-    });
-  }
+	initialize() {
+		this.on('save', async () => {
+			if (this.password) {
+				this.passwordHash = this.password.toLowerCase();
+			}
+		});
+	}
 }
 
 class Post extends Model {
-  id = number({ primaryKey: true });
-  title = string();
-  body = string();
-  user = belongsTo(User);
+	id = incrementing({ primaryKey: true });
+	title = text();
+	body = text();
+	user = belongsTo(User);
 }
 
 async function main() {
-  const user = User.create({
-    name: 'jordan'
-  });
+	await connect({
+		type: 'sqlite',
+		database: ':memory:',
+	});
 
-  console.log(user);
-  console.log(await user.save());
-  // const user = await User.pluck('age');
-  // user.save();
-  // const u = await User.where({});
-  // const data = await User.where({ name: "jordan" });
+	User.preload();
+	Post.preload();
+
+	await createTables();
+
+	await User.create({
+		name: 'jordan',
+	}).save();
+
+	const mewtru = await User.create({
+		name: 'mewtru',
+	}).save();
+
+	console.log(mewtru);
+
+	const u = await User.find(mewtru.id!).pluck('id', 'name');
+	console.log(u);
+	console.log(u.getName());
+	// const user = await User.pluck('age');
+	// user.save();
+	// const u = await User.where({});
+	// const data = await User.where({ name: "jordan" });
 }
 
 main();
