@@ -5,7 +5,7 @@ const ALL_FIELDS: unique symbol = Symbol('fewer/all');
 const ASSOCIATION_META: unique symbol = Symbol('fewer/association');
 const COLUMN_META: unique symbol = Symbol('fewer/column');
 const MODEL_CONSTRUCTOR: unique symbol = Symbol('fewer/construct');
-const MODEL_META: unique symbol = Symbol('fewer/model');
+export const MODEL_META: unique symbol = Symbol('fewer/model');
 
 export const INTERNAL_TYPES = {
 	ALL_FIELDS,

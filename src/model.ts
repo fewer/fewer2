@@ -1,7 +1,8 @@
+import pick from 'lodash/pick';
 import flags from './flags';
 import { QueryBuilder } from './querybuilder';
 import tables from './tables';
-import { ColumnTypes, INTERNAL_TYPES } from './types';
+import { ColumnTypes, INTERNAL_TYPES, MODEL_META } from './types';
 import { isAssociation, isColumn } from './utils/predicates';
 import generateTableName from './utils/generateTableName';
 import { ModelInstance } from './modelinstance';
@@ -10,13 +11,17 @@ import { getConnection } from './connect';
 type ModelEvent = 'save' | 'destroy';
 type ModelEventHandler = () => void | Promise<void>;
 
+type ModelMeta = {
+	tableName: string;
+	primaryKey: string;
+	columns: Set<string>;
+	dirty: Set<string>;
+	exists: boolean;
+};
+
 export class Model {
 	static tableName?: string;
-	[INTERNAL_TYPES.MODEL_META]: {
-		tableName: string;
-		primaryKey: string;
-		columns: Set<string>;
-	};
+	[MODEL_META]: ModelMeta;
 
 	static getTableName() {
 		return this.tableName ?? generateTableName(this.name);
@@ -37,11 +42,9 @@ export class Model {
 
 		flags.constructPhase = true;
 		Promise.resolve().then(() => {
-			if (!this[INTERNAL_TYPES.MODEL_META].primaryKey) {
+			if (!this[MODEL_META].primaryKey) {
 				throw new Error(
-					`No primary key was found for table "${
-						this[INTERNAL_TYPES.MODEL_META].tableName
-					}"`,
+					`No primary key was found for table "${this[MODEL_META].tableName}"`,
 				);
 			}
 			flags.constructPhase = false;
@@ -52,24 +55,21 @@ export class Model {
 			this.initialize();
 		}
 
-		this[INTERNAL_TYPES.MODEL_META] = {
+		this[MODEL_META] = {
 			primaryKey: '',
 			tableName: ((this
 				.constructor as unknown) as typeof Model).getTableName(),
 			columns: new Set(),
+			dirty: new Set(),
+			exists: false,
 		};
 
 		let tableColumns: Map<string, any> | undefined;
 		if (flags.buildTables) {
-			tableColumns = tables.get(
-				this[INTERNAL_TYPES.MODEL_META].tableName,
-			);
+			tableColumns = tables.get(this[MODEL_META].tableName);
 			if (!tableColumns) {
 				tableColumns = new Map();
-				tables.set(
-					this[INTERNAL_TYPES.MODEL_META].tableName,
-					tableColumns,
-				);
+				tables.set(this[MODEL_META].tableName, tableColumns);
 			}
 		}
 
@@ -99,17 +99,15 @@ export class Model {
 						if (
 							value[INTERNAL_TYPES.COLUMN_META].config?.primaryKey
 						) {
-							if (this[INTERNAL_TYPES.MODEL_META].primaryKey) {
+							if (this[MODEL_META].primaryKey) {
 								throw new Error(
 									'You cannot define multiple primary keys.',
 								);
 							}
-							this[
-								INTERNAL_TYPES.MODEL_META
-							].primaryKey = property;
+							this[MODEL_META].primaryKey = property;
 						}
 
-						this[INTERNAL_TYPES.MODEL_META].columns.add(property);
+						this[MODEL_META].columns.add(property);
 
 						target[property] =
 							value[INTERNAL_TYPES.COLUMN_META].value;
@@ -127,6 +125,9 @@ export class Model {
 					// 	);
 					// }
 				} else {
+					if (this[MODEL_META].columns.has(property as string)) {
+						this[MODEL_META].dirty.add(property as string);
+					}
 					target[property] = value;
 				}
 
@@ -153,8 +154,7 @@ export class Model {
 			modelType: this,
 			tableName: this.getTableName(),
 			where: {
-				[modelInstance[INTERNAL_TYPES.MODEL_META]
-					.primaryKey]: primaryKey,
+				[modelInstance[MODEL_META].primaryKey]: primaryKey,
 			},
 		}).first();
 	}
@@ -175,6 +175,7 @@ export class Model {
 	): ModelInstance<T> {
 		const instance = new this(INTERNAL_TYPES.MODEL_CONSTRUCTOR);
 		Object.assign(instance, obj);
+		instance[MODEL_META].dirty.clear();
 		return instance;
 	}
 
@@ -183,21 +184,36 @@ export class Model {
 	initialize?(): void;
 
 	async save<T>(this: T): Promise<T> {
-		await this.trigger('save');
+		// This allows us to get some sensible types.
+		const that = (this as unknown) as Model;
+		const meta = that[MODEL_META];
+
+		await that.trigger('save');
 		const connection = getConnection();
 
-		const insertObject: Record<string, any> = {};
+		if (meta.exists) {
+			const updateObject = pick(that, [...meta.dirty]);
 
-		for (const column of this[INTERNAL_TYPES.MODEL_META].columns) {
-			insertObject[column] = this[column];
+			await connection
+				.table(meta.tableName)
+				.where({
+					[meta.primaryKey]: that[meta.primaryKey],
+				})
+				.update(updateObject);
+		} else {
+			const insertObject = pick(that, [...meta.columns]);
+
+			const [id] = await connection
+				.table(meta.tableName)
+				.insert(insertObject);
+
+			// @ts-ignore: I promise I can do this
+			that[meta.primaryKey] = id;
+			meta.exists = true;
 		}
 
-		const [id] = await connection
-			.table(this[INTERNAL_TYPES.MODEL_META].tableName)
-			.insert(insertObject);
-
-		// @ts-ignore: I promise this is a column:s
-		this[this[INTERNAL_TYPES.MODEL_META].primaryKey] = id;
+		// The model is no longer dirty:
+		that[MODEL_META].dirty.clear();
 
 		return this;
 	}

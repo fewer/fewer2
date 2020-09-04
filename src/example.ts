@@ -53,6 +53,10 @@ async function main() {
 		name: 'mewtru',
 	}).save();
 
+	mewtru.name = 'mewtwo';
+
+	await mewtru.save();
+
 	console.log(mewtru);
 
 	const u = await User.find(mewtru.id!).pluck('id', 'name');

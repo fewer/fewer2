@@ -1,7 +1,12 @@
 import { Model } from './model';
 import { getConnection } from './connect';
-import { createModelInstance, ModelInstance } from './modelinstance';
-import { ColumnTypes, CreateSelectionSet, INTERNAL_TYPES } from './types';
+import { ModelInstance } from './modelinstance';
+import {
+	ColumnTypes,
+	CreateSelectionSet,
+	INTERNAL_TYPES,
+	MODEL_META,
+} from './types';
 
 enum ResultCount {
 	MANY = 'MANY',
@@ -21,9 +26,14 @@ type QueryMeta = {
 export class QueryBuilder<
 	ModelType extends typeof Model,
 	Plucked = INTERNAL_TYPES['ALL_FIELDS'],
-	Count = ResultCount.MANY
+	Count = ResultCount.MANY,
+	Result = Count extends ResultCount.MANY
+		? ModelInstance<ModelType, Plucked>[]
+		: ModelInstance<ModelType, Plucked>
 > {
 	constructor(private meta: QueryMeta) {}
+
+	private promise?: Promise<Result>;
 
 	/**
 	 * This is an internal helper that is used to construct the next QueryBuilder object.
@@ -41,7 +51,7 @@ export class QueryBuilder<
 			];
 		}
 
-		return new QueryBuilder<any, any, any>(nextMeta);
+		return new QueryBuilder<any, any, any, any>(nextMeta);
 	}
 
 	where(
@@ -79,15 +89,25 @@ export class QueryBuilder<
 		});
 	}
 
-	// TODO: Cache the promise so that multiple calls on this instance will return the same promise.
 	async then(
-		onFulfilled: (
-			value: Count extends ResultCount.MANY
-				? ModelInstance<ModelType, Plucked>[]
-				: ModelInstance<ModelType, Plucked>,
-		) => void,
+		onFulfilled: (value: Result) => void,
 		onRejected?: (error: Error) => void,
 	): Promise<void> {
+		if (!this.promise) {
+			this.promise = this.executeQuery();
+		}
+
+		return this.promise.then(
+			(value) => {
+				onFulfilled(value);
+			},
+			(error) => {
+				onRejected?.(error);
+			},
+		);
+	}
+
+	private async executeQuery() {
 		let query = getConnection().select();
 
 		if (this.meta.plucked) {
@@ -109,23 +129,20 @@ export class QueryBuilder<
 			query = query.offset(this.meta.offset);
 		}
 
-		return query.then(
-			(value) => {
-				if (this.meta.resultCount === ResultCount.SINGLE) {
-					console.log(value);
-					// TODO: What if it isn't here.
-					onFulfilled(this.meta.modelType.create(value[0]));
-				} else {
-					onFulfilled(
-						value.map((result) =>
-							this.meta.modelType.create(result),
-						),
-					);
-				}
-			},
-			(err) => {
-				onRejected?.(err);
-			},
-		);
+		const create = (value: any) => {
+			const instance = this.meta.modelType.create(value);
+			instance[MODEL_META].exists = true;
+			return instance as any;
+		};
+
+		const value = await query;
+		let returnValue;
+
+		if (this.meta.resultCount === ResultCount.SINGLE) {
+			// TODO: What if it isn't here.
+			return create(value[0]);
+		} else {
+			return value.map((result) => create(result));
+		}
 	}
 }
