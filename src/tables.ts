@@ -19,6 +19,7 @@ function getPrimaryKey(tableName: string) {
 }
 
 export async function createTables() {
+	throw new Error('DO NOT USE');
 	const connection = getConnection();
 
 	for (const [tableName, tableDescription] of tables) {

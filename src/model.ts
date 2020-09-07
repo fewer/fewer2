@@ -33,15 +33,22 @@ type ModelInstanceMeta = {
 	exists: boolean;
 };
 
+export const models = new Set<typeof Model>();
+
+export function getStaticMeta(
+	modelOrClass: Model | typeof Model,
+): ModelStaticMeta {
+	if (modelOrClass instanceof Model) {
+		return (modelOrClass.constructor as typeof Model)[MODEL_STATIC_META];
+	}
+	return modelOrClass[MODEL_STATIC_META];
+}
+
 export class Model {
 	static tableName?: string;
 
 	private static [MODEL_STATIC_META]: ModelStaticMeta;
 	private [MODEL_INSTANCE_META]: ModelInstanceMeta;
-
-	static getTableName() {
-		return this.tableName ?? generateTableName(this.name);
-	}
 
 	constructor(
 		please_use_create_to_construct_entities: typeof INTERNAL_TYPES.MODEL_CONSTRUCTOR,
@@ -62,7 +69,7 @@ export class Model {
 		flags.constructPhase = true;
 
 		Promise.resolve().then(() => {
-			const staticMeta = this.getStaticMeta();
+			const staticMeta = getStaticMeta(this);
 			if (!staticMeta.primaryKey) {
 				throw new Error(
 					`No primary key was found for table "${staticMeta.tableName}"`,
@@ -79,17 +86,19 @@ export class Model {
 
 		// If this is the first time this model has been initialized, we need to fill in the static metadata:
 		let isDefiningStaticMeta = false;
-		if (!this.getStaticMeta()) {
+		if (!getStaticMeta(this)) {
+			models.add(this.constructor as any);
 			isDefiningStaticMeta = true;
 			this.setStaticMeta({
 				primaryKey: '',
-				tableName: ((this
-					.constructor as unknown) as typeof Model).getTableName(),
+				tableName:
+					(this.constructor as typeof Model).tableName ??
+					generateTableName(this.constructor.name),
 				columns: new Set(),
 			});
 		}
 
-		const staticMeta = this.getStaticMeta();
+		const staticMeta = getStaticMeta(this);
 
 		this[MODEL_INSTANCE_META] = {
 			dirty: new Set(),
@@ -165,10 +174,6 @@ export class Model {
 		(this.constructor as any)[MODEL_STATIC_META] = staticMeta;
 	}
 
-	private getStaticMeta() {
-		return (this.constructor as any)[MODEL_STATIC_META] as ModelStaticMeta;
-	}
-
 	/**
 	 * Ensure that a model's tables have been initalized. This should only
 	 * be used internally, and at some point probably should be removed.
@@ -188,7 +193,7 @@ export class Model {
 	static find<T extends typeof Model>(this: T, primaryKey: number | string) {
 		return new QueryBuilder<T>({
 			modelType: this,
-			tableName: this.getTableName(),
+			tableName: getStaticMeta(this).tableName,
 			where: {
 				[this[MODEL_STATIC_META].primaryKey]: primaryKey,
 			},
@@ -201,7 +206,7 @@ export class Model {
 	) {
 		return new QueryBuilder<T>({
 			modelType: this,
-			tableName: this.getTableName(),
+			tableName: getStaticMeta(this).tableName,
 		});
 	}
 
@@ -225,7 +230,7 @@ export class Model {
 		// This allows us to get some sensible types.
 		const that = (this as unknown) as Model;
 		const instanceMeta = that[MODEL_INSTANCE_META];
-		const staticMeta = that.getStaticMeta();
+		const staticMeta = getStaticMeta(that);
 
 		await that.trigger('save');
 		const connection = getConnection();
