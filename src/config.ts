@@ -1,24 +1,31 @@
-import { cosmiconfig } from 'cosmiconfig';
+import { cosmiconfigSync } from 'cosmiconfig';
 
 export type Config = {
 	type: 'sqlite',
 	database: string;
+	synchronize?: boolean;
 };
 
 let config: Config;
 
-export function setConfig(newConfig: Config) {
-	config = newConfig;
-}
+// TODO: Add client-side validator for config.
+export function getConfig(maybeConfig?: Config) {
+	if (maybeConfig) {
+		config = maybeConfig;
+	}
 
-export async function loadConfig() {
 	if (config) {
 		return config;
 	}
 
-	const explorer = cosmiconfig('fewer');
-	const result = await explorer.search();
+	const explorer = cosmiconfigSync('fewer');
+	const result = explorer.search();
 	config = result?.config;
+
+	if (!config) {
+		throw new Error('No configuration was found.');
+	}
+
 	return config;
 }
 

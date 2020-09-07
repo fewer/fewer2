@@ -5,14 +5,18 @@ const ALL_FIELDS: unique symbol = Symbol('fewer/all');
 const ASSOCIATION_META: unique symbol = Symbol('fewer/association');
 const COLUMN_META: unique symbol = Symbol('fewer/column');
 const MODEL_CONSTRUCTOR: unique symbol = Symbol('fewer/construct');
-export const MODEL_META: unique symbol = Symbol('fewer/model');
+export const MODEL_STATIC_META: unique symbol = Symbol('fewer/model_static');
+export const MODEL_INSTANCE_META: unique symbol = Symbol(
+	'fewer/model_instance',
+);
 
 export const INTERNAL_TYPES = {
 	ALL_FIELDS,
 	ASSOCIATION_META,
 	COLUMN_META,
 	MODEL_CONSTRUCTOR,
-	MODEL_META,
+	MODEL_STATIC_META,
+	MODEL_INSTANCE_META,
 } as const;
 
 export type INTERNAL_TYPES = typeof INTERNAL_TYPES;

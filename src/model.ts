@@ -2,26 +2,42 @@ import pick from 'lodash/pick';
 import flags from './flags';
 import { QueryBuilder } from './querybuilder';
 import tables from './tables';
-import { ColumnTypes, INTERNAL_TYPES, MODEL_META } from './types';
+import {
+	ColumnTypes,
+	INTERNAL_TYPES,
+	MODEL_INSTANCE_META,
+	MODEL_STATIC_META,
+} from './types';
 import { isAssociation, isColumn } from './utils/predicates';
 import generateTableName from './utils/generateTableName';
 import { ModelInstance } from './modelinstance';
 import { getConnection } from './connect';
+import { AssociationType } from './associations';
+import { getConfig } from './config';
+import { takeRight } from 'lodash';
 
 type ModelEvent = 'save' | 'destroy';
 type ModelEventHandler = () => void | Promise<void>;
 
-type ModelMeta = {
+type ModelStaticMeta = {
 	tableName: string;
 	primaryKey: string;
 	columns: Set<string>;
+};
+
+type ModelInstanceMeta = {
 	dirty: Set<string>;
+	// TODO: Do we really need this flag, or should we instead use the existence of a primary key?
+	// If we use this flag, then you couldn't manually create an entity with a known ID and then update properties without first loading it.
+	// However, if we don't use this flag, then having models that manually define their own primary key get pretty weird.
 	exists: boolean;
 };
 
 export class Model {
 	static tableName?: string;
-	[MODEL_META]: ModelMeta;
+
+	private static [MODEL_STATIC_META]: ModelStaticMeta;
+	private [MODEL_INSTANCE_META]: ModelInstanceMeta;
 
 	static getTableName() {
 		return this.tableName ?? generateTableName(this.name);
@@ -40,13 +56,19 @@ export class Model {
 			);
 		}
 
+		// TODO: It might be more work than it's worth to keep track of the construct phase.
+		// This also means that some patterns around re-using column definitions are limited (when they don't really technically need to be)
+		// Instead of doing this, it might be more worthwhile to just remove this entirely, and lean more into documentation.
 		flags.constructPhase = true;
+
 		Promise.resolve().then(() => {
-			if (!this[MODEL_META].primaryKey) {
+			const staticMeta = this.getStaticMeta();
+			if (!staticMeta.primaryKey) {
 				throw new Error(
-					`No primary key was found for table "${this[MODEL_META].tableName}"`,
+					`No primary key was found for table "${staticMeta.tableName}"`,
 				);
 			}
+
 			flags.constructPhase = false;
 		});
 
@@ -55,23 +77,24 @@ export class Model {
 			this.initialize();
 		}
 
-		this[MODEL_META] = {
-			primaryKey: '',
-			tableName: ((this
-				.constructor as unknown) as typeof Model).getTableName(),
-			columns: new Set(),
+		// If this is the first time this model has been initialized, we need to fill in the static metadata:
+		let isDefiningStaticMeta = false;
+		if (!this.getStaticMeta()) {
+			isDefiningStaticMeta = true;
+			this.setStaticMeta({
+				primaryKey: '',
+				tableName: ((this
+					.constructor as unknown) as typeof Model).getTableName(),
+				columns: new Set(),
+			});
+		}
+
+		const staticMeta = this.getStaticMeta();
+
+		this[MODEL_INSTANCE_META] = {
 			dirty: new Set(),
 			exists: false,
 		};
-
-		let tableColumns: Map<string, any> | undefined;
-		if (flags.buildTables) {
-			tableColumns = tables.get(this[MODEL_META].tableName);
-			if (!tableColumns) {
-				tableColumns = new Map();
-				tables.set(this[MODEL_META].tableName, tableColumns);
-			}
-		}
 
 		return new Proxy<any>(this, {
 			set: (target, property, value) => {
@@ -89,44 +112,46 @@ export class Model {
 					}
 
 					if (isColumn(value)) {
-						if (flags.buildTables) {
-							tableColumns!.set(
-								property,
-								value[INTERNAL_TYPES.COLUMN_META],
-							);
-						}
-
 						if (
-							value[INTERNAL_TYPES.COLUMN_META].config?.primaryKey
+							value[INTERNAL_TYPES.COLUMN_META].config
+								?.primaryKey &&
+							isDefiningStaticMeta
 						) {
-							if (this[MODEL_META].primaryKey) {
+							if (staticMeta.primaryKey) {
 								throw new Error(
 									'You cannot define multiple primary keys.',
 								);
 							}
-							this[MODEL_META].primaryKey = property;
+							staticMeta.primaryKey = property;
 						}
 
-						this[MODEL_META].columns.add(property);
+						if (isDefiningStaticMeta) {
+							// TODO: We also want to capture the column definition itself in the static meta.
+							staticMeta.columns.add(property);
+						}
 
+						// NOTE: The value that we put on the model is the actual value of the column, not the definition of the column.
 						target[property] =
 							value[INTERNAL_TYPES.COLUMN_META].value;
 					}
 
-					// TODO: Add association columns:
+					// TODO: Enable this.
 					// if (
 					// 	isAssociation(value) &&
 					// 	value[INTERNAL_TYPES.ASSOCIATION_META].type ===
 					// 		AssociationType.BELONGS_TO
 					// ) {
-					// 	tableColumns!.set(
-					// 		`${property}Id`,
-					// 		value[INTERNAL_TYPES.ASSOCIATION_META],
-					// 	);
+					// 	// TODO: Build this by exposing a `foreignKey()` directly in the columns export.
+					// 	tableColumns!.set(`${property}Id`, {
+					// 		schemaConfig: {
+					// 			fk: true,
+					// 		},
+					// 		config: value[INTERNAL_TYPES.ASSOCIATION_META],
+					// 	});
 					// }
 				} else {
-					if (this[MODEL_META].columns.has(property as string)) {
-						this[MODEL_META].dirty.add(property as string);
+					if (staticMeta.columns.has(property as string)) {
+						this[MODEL_INSTANCE_META].dirty.add(property as string);
 					}
 					target[property] = value;
 				}
@@ -136,25 +161,36 @@ export class Model {
 		});
 	}
 
+	private setStaticMeta(staticMeta: ModelStaticMeta) {
+		(this.constructor as any)[MODEL_STATIC_META] = staticMeta;
+	}
+
+	private getStaticMeta() {
+		return (this.constructor as any)[MODEL_STATIC_META] as ModelStaticMeta;
+	}
+
 	/**
 	 * Ensure that a model's tables have been initalized. This should only
 	 * be used internally, and at some point probably should be removed.
 	 */
-	static preload() {
-		flags.buildTables = true;
+	static async preload() {
+		// This model has already been pre-loaded, so we can just happily continue:
+		if (this[MODEL_STATIC_META]) {
+			return;
+		}
+
 		new this(INTERNAL_TYPES.MODEL_CONSTRUCTOR, true);
-		flags.buildTables = false;
+		if (getConfig().synchronize) {
+			// TODO: Create tables.
+		}
 	}
 
 	static find<T extends typeof Model>(this: T, primaryKey: number | string) {
-		// TODO: This is a hack. Instead what we want to do is have a method to get the model meta, which basically does what preload does,
-		// but caches the result so that we can statically get the model meta.
-		const modelInstance = new this(INTERNAL_TYPES.MODEL_CONSTRUCTOR, true);
 		return new QueryBuilder<T>({
 			modelType: this,
 			tableName: this.getTableName(),
 			where: {
-				[modelInstance[MODEL_META].primaryKey]: primaryKey,
+				[this[MODEL_STATIC_META].primaryKey]: primaryKey,
 			},
 		}).first();
 	}
@@ -173,9 +209,11 @@ export class Model {
 		this: T,
 		obj: Partial<ColumnTypes<T>>,
 	): ModelInstance<T> {
+		// TODO: Rather than Object.assign() after the fact, we should pass these into the constructor directly,
+		// So that we can correctly initialize the column default values.
 		const instance = new this(INTERNAL_TYPES.MODEL_CONSTRUCTOR);
 		Object.assign(instance, obj);
-		instance[MODEL_META].dirty.clear();
+		instance[MODEL_INSTANCE_META].dirty.clear();
 		return instance;
 	}
 
@@ -186,34 +224,35 @@ export class Model {
 	async save<T>(this: T): Promise<T> {
 		// This allows us to get some sensible types.
 		const that = (this as unknown) as Model;
-		const meta = that[MODEL_META];
+		const instanceMeta = that[MODEL_INSTANCE_META];
+		const staticMeta = that.getStaticMeta();
 
 		await that.trigger('save');
 		const connection = getConnection();
 
-		if (meta.exists) {
-			const updateObject = pick(that, [...meta.dirty]);
+		if (instanceMeta.exists) {
+			const updateObject = pick(that, [...instanceMeta.dirty]);
 
 			await connection
-				.table(meta.tableName)
+				.table(staticMeta.tableName)
 				.where({
-					[meta.primaryKey]: that[meta.primaryKey],
+					[staticMeta.primaryKey]: that[staticMeta.primaryKey],
 				})
 				.update(updateObject);
 		} else {
-			const insertObject = pick(that, [...meta.columns]);
+			const insertObject = pick(that, [...staticMeta.columns]);
 
 			const [id] = await connection
-				.table(meta.tableName)
+				.table(staticMeta.tableName)
 				.insert(insertObject);
 
 			// @ts-ignore: I promise I can do this
 			that[meta.primaryKey] = id;
-			meta.exists = true;
+			instanceMeta.exists = true;
 		}
 
 		// The model is no longer dirty:
-		that[MODEL_META].dirty.clear();
+		instanceMeta.dirty.clear();
 
 		return this;
 	}

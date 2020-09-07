@@ -5,7 +5,7 @@ import {
 	ColumnTypes,
 	CreateSelectionSet,
 	INTERNAL_TYPES,
-	MODEL_META,
+	MODEL_INSTANCE_META,
 } from './types';
 
 enum ResultCount {
@@ -131,7 +131,7 @@ export class QueryBuilder<
 
 		const create = (value: any) => {
 			const instance = this.meta.modelType.create(value);
-			instance[MODEL_META].exists = true;
+			instance[MODEL_INSTANCE_META].exists = true;
 			return instance as any;
 		};
 

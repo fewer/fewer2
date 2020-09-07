@@ -2,7 +2,16 @@ import { ColumnBuilder, TableBuilder } from 'knex';
 import flags from './flags';
 import { INTERNAL_TYPES } from './types';
 
-// TODO: Should we isolate internal config (columnBuilder) from external config?
+export type SchemaConfig = {
+	fk?: boolean;
+	columnType?: keyof TableBuilder;
+	columnBuilder?: (
+		name: string,
+		config: ColumnConfig<boolean>,
+		tableBuilder: TableBuilder,
+	) => ColumnBuilder;
+};
+
 export type ColumnConfig<Nullable extends boolean> = (Nullable extends true
 	? {
 			nullable: true;
@@ -10,21 +19,18 @@ export type ColumnConfig<Nullable extends boolean> = (Nullable extends true
 	: {
 			nullable?: false;
 	  }) & {
-	columnBuilder?: (
-		name: string,
-		config: ColumnConfig<boolean>,
-		tableBuilder: TableBuilder,
-	) => ColumnBuilder;
 	primaryKey?: boolean;
 	unique?: boolean;
 };
 
 export type ColumnMeta = {
-	[INTERNAL_TYPES.COLUMN_META]: {
-		type: string;
-		value: any;
-		config?: ColumnConfig<boolean>;
-	};
+	value: any;
+	config: ColumnConfig<boolean>;
+	schemaConfig: SchemaConfig;
+};
+
+export type ColumnResult = {
+	[INTERNAL_TYPES.COLUMN_META]: ColumnMeta;
 };
 
 const ColumnType: unique symbol = Symbol('fewer/type');
@@ -35,7 +41,7 @@ export type Column<T> =
 	  });
 
 export function column<Type, Nullable extends boolean = false>(
-	type: string,
+	schemaConfig?: SchemaConfig,
 	config?: ColumnConfig<Nullable>,
 ): Column<Nullable extends true ? Type : Type | undefined> {
 	if (!flags.constructPhase) {
@@ -45,19 +51,16 @@ export function column<Type, Nullable extends boolean = false>(
 	// @ts-ignore: We intentionally violate the return type definition here because we depend on the proxy to extract the true value.
 	return {
 		[INTERNAL_TYPES.COLUMN_META]: {
-			type,
 			config,
+			schemaConfig,
 			// TODO: Default values and all of that goodness.
 			value: undefined,
 		},
 	};
 }
 
-export function createColumnType<T>(
-	typeName: string,
-	baseConfig?: ColumnConfig<any>,
-) {
-	return function <U extends boolean>(config?: ColumnConfig<U>) {
-		return column<T, U>(typeName, { ...baseConfig, ...config });
+export function createColumnType<T>(schemaConfig: SchemaConfig) {
+	return function <U extends boolean>(config: ColumnConfig<U> = {}) {
+		return column<T, U>(schemaConfig, config);
 	};
 }

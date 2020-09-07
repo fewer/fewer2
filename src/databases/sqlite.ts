@@ -1,13 +1,17 @@
 import { createColumnType } from '../columns';
 
-// TODO: Add in configuration here which allows us to know we should make this the incrementing type
-// I think we probably want this to define which knex columnbuilder gets used. All of these probably should define that.
-export const incrementing = createColumnType<number>('INTEGER', {
-	columnBuilder: (name, config, connection) => connection.increments(name),
+export const incrementing = createColumnType<number>({
+	columnType: 'increments',
 });
-export const integer = createColumnType<number>('INTEGER');
-export const real = createColumnType<number>('REAL');
-export const text = createColumnType<string>('TEXT');
+export const integer = createColumnType<number>({
+	columnType: 'integer',
+});
+export const real = createColumnType<number>({
+	columnType: 'double',
+});
+export const text = createColumnType<string>({
+	columnType: 'text',
+});
 
 export const int = integer;
 export const tinyint = integer;

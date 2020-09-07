@@ -14,10 +14,6 @@ class User extends Model {
 
 	posts = hasMany(Post);
 
-	getName() {
-		return this.name;
-	}
-
 	initialize() {
 		this.on('save', async () => {
 			if (this.password) {
