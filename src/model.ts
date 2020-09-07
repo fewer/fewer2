@@ -1,7 +1,6 @@
 import pick from 'lodash/pick';
 import flags from './flags';
 import { QueryBuilder } from './querybuilder';
-import tables from './tables';
 import {
 	ColumnTypes,
 	INTERNAL_TYPES,
@@ -15,6 +14,8 @@ import { getConnection } from './connect';
 import { AssociationType } from './associations';
 import { getConfig } from './config';
 import { takeRight } from 'lodash';
+import { ColumnMeta } from './columns';
+import { buildTableForModel } from './tables/buildTable';
 
 type ModelEvent = 'save' | 'destroy';
 type ModelEventHandler = () => void | Promise<void>;
@@ -23,6 +24,7 @@ type ModelStaticMeta = {
 	tableName: string;
 	primaryKey: string;
 	columns: Set<string>;
+	columnDefinitions: Map<string, ColumnMeta>;
 };
 
 type ModelInstanceMeta = {
@@ -95,6 +97,7 @@ export class Model {
 					(this.constructor as typeof Model).tableName ??
 					generateTableName(this.constructor.name),
 				columns: new Set(),
+				columnDefinitions: new Map(),
 			});
 		}
 
@@ -137,6 +140,10 @@ export class Model {
 						if (isDefiningStaticMeta) {
 							// TODO: We also want to capture the column definition itself in the static meta.
 							staticMeta.columns.add(property);
+							staticMeta.columnDefinitions.set(
+								property,
+								value[INTERNAL_TYPES.COLUMN_META],
+							);
 						}
 
 						// NOTE: The value that we put on the model is the actual value of the column, not the definition of the column.
@@ -177,6 +184,8 @@ export class Model {
 	/**
 	 * Ensure that a model's tables have been initalized. This should only
 	 * be used internally, and at some point probably should be removed.
+	 * TODO: This should at some point be magically called internally whenever we try
+	 * to do some operation on the model.
 	 */
 	static async preload() {
 		// This model has already been pre-loaded, so we can just happily continue:
@@ -185,8 +194,9 @@ export class Model {
 		}
 
 		new this(INTERNAL_TYPES.MODEL_CONSTRUCTOR, true);
+
 		if (getConfig().synchronize) {
-			// TODO: Create tables.
+			await buildTableForModel(this);
 		}
 	}
 
@@ -252,7 +262,7 @@ export class Model {
 				.insert(insertObject);
 
 			// @ts-ignore: I promise I can do this
-			that[meta.primaryKey] = id;
+			that[staticMeta.primaryKey] = id;
 			instanceMeta.exists = true;
 		}
 

@@ -10,6 +10,7 @@ export const MODEL_INSTANCE_META: unique symbol = Symbol(
 	'fewer/model_instance',
 );
 
+// TODO: Just get rid of these internal types and use the exported symbols directly, there's no point in the object indirection.
 export const INTERNAL_TYPES = {
 	ALL_FIELDS,
 	ASSOCIATION_META,

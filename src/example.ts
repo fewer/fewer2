@@ -2,7 +2,6 @@ import { belongsTo, hasMany } from './associations';
 import { connect } from './connect';
 import { incrementing, int, text } from './databases/sqlite';
 import { Model } from './model';
-import { createTables } from './tables';
 
 class User extends Model {
 	id = incrementing({ primaryKey: true });
@@ -34,12 +33,14 @@ async function main() {
 	await connect({
 		type: 'sqlite',
 		database: ':memory:',
+		synchronize: true
 	});
 
-	User.preload();
-	Post.preload();
-
-	await createTables();
+	// Preload the models to ensure the tables for them have been created and they are ready to be used freely.
+	await Promise.all([
+		Post.preload(),
+		User.preload()
+	]);
 
 	await User.create({
 		name: 'jordan',
@@ -57,7 +58,6 @@ async function main() {
 
 	const u = await User.find(mewtru.id!).pluck('id', 'name');
 	console.log(u);
-	console.log(u.getName());
 	// const user = await User.pluck('age');
 	// user.save();
 	// const u = await User.where({});

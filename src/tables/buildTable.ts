@@ -1,3 +1,4 @@
+import { ColumnBuilder } from 'knex';
 import { getConnection } from '../connect';
 import { getStaticMeta, Model } from '../model';
 
@@ -7,7 +8,7 @@ export async function buildTableForModel(model: typeof Model) {
 	const staticMeta = getStaticMeta(model);
 
 	await connection.schema.createTable(staticMeta.tableName, (table) => {
-		for (const [columnName, columnDescription] of tableDescription) {
+		for (const [columnName, columnDescription] of staticMeta.columnDefinitions) {
 			let column: ColumnBuilder;
 			if (columnDescription.schemaConfig.fk) {
 				// TODO: The foreign keys aren't always integers/
