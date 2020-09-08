@@ -1,9 +1,9 @@
 import pick from 'lodash/pick';
-import flags from './flags';
 import { QueryBuilder } from './querybuilder';
 import {
 	ColumnTypes,
-	INTERNAL_TYPES,
+	COLUMN_META,
+	MODEL_CONSTRUCTOR,
 	MODEL_INSTANCE_META,
 	MODEL_STATIC_META,
 } from './types';
@@ -53,22 +53,18 @@ export class Model {
 	private [MODEL_INSTANCE_META]: ModelInstanceMeta;
 
 	constructor(
-		please_use_create_to_construct_entities: typeof INTERNAL_TYPES.MODEL_CONSTRUCTOR,
+		please_use_create_to_construct_entities: typeof MODEL_CONSTRUCTOR,
+		initialValues: object = {},
 		bypassInitialize: boolean = false,
 	) {
 		if (
 			please_use_create_to_construct_entities !==
-			INTERNAL_TYPES.MODEL_CONSTRUCTOR
+			MODEL_CONSTRUCTOR
 		) {
 			throw new Error(
 				'Model instances cannot be created with the new keyword. Instead, use Model.create().',
 			);
 		}
-
-		// TODO: It might be more work than it's worth to keep track of the construct phase.
-		// This also means that some patterns around re-using column definitions are limited (when they don't really technically need to be)
-		// Instead of doing this, it might be more worthwhile to just remove this entirely, and lean more into documentation.
-		flags.constructPhase = true;
 
 		Promise.resolve().then(() => {
 			const staticMeta = getStaticMeta(this);
@@ -77,8 +73,6 @@ export class Model {
 					`No primary key was found for table "${staticMeta.tableName}"`,
 				);
 			}
-
-			flags.constructPhase = false;
 		});
 
 		// TODO: Maybe initalize will need to be called somewhere else?
@@ -108,6 +102,9 @@ export class Model {
 			exists: false,
 		};
 
+		// Assign in the initial values:
+		Object.assign(this, initialValues);
+
 		return new Proxy<any>(this, {
 			set: (target, property, value) => {
 				if (isAssociation(value) || isColumn(value)) {
@@ -125,7 +122,7 @@ export class Model {
 
 					if (isColumn(value)) {
 						if (
-							value[INTERNAL_TYPES.COLUMN_META].config
+							value[COLUMN_META].config
 								?.primaryKey &&
 							isDefiningStaticMeta
 						) {
@@ -138,23 +135,26 @@ export class Model {
 						}
 
 						if (isDefiningStaticMeta) {
-							// TODO: We also want to capture the column definition itself in the static meta.
 							staticMeta.columns.add(property);
 							staticMeta.columnDefinitions.set(
 								property,
-								value[INTERNAL_TYPES.COLUMN_META],
+								value[COLUMN_META],
 							);
 						}
 
-						// NOTE: The value that we put on the model is the actual value of the column, not the definition of the column.
-						target[property] =
-							value[INTERNAL_TYPES.COLUMN_META].value;
+						// If the value is already in the instance, then we can use that directly.
+						if (property in this) {
+							target[property] = this[property];
+						} else {
+							// TODO: Allow columns to define defaults.
+							target[property] = undefined;
+						}
 					}
 
 					// TODO: Enable this.
 					// if (
 					// 	isAssociation(value) &&
-					// 	value[INTERNAL_TYPES.ASSOCIATION_META].type ===
+					// 	value[ASSOCIATION_META].type ===
 					// 		AssociationType.BELONGS_TO
 					// ) {
 					// 	// TODO: Build this by exposing a `foreignKey()` directly in the columns export.
@@ -162,7 +162,7 @@ export class Model {
 					// 		schemaConfig: {
 					// 			fk: true,
 					// 		},
-					// 		config: value[INTERNAL_TYPES.ASSOCIATION_META],
+					// 		config: value[ASSOCIATION_META],
 					// 	});
 					// }
 				} else {
@@ -193,7 +193,7 @@ export class Model {
 			return;
 		}
 
-		new this(INTERNAL_TYPES.MODEL_CONSTRUCTOR, true);
+		new this(MODEL_CONSTRUCTOR, {}, true);
 
 		if (getConfig().synchronize) {
 			await buildTableForModel(this);
@@ -226,10 +226,7 @@ export class Model {
 	): ModelInstance<T> {
 		// TODO: Rather than Object.assign() after the fact, we should pass these into the constructor directly,
 		// So that we can correctly initialize the column default values.
-		const instance = new this(INTERNAL_TYPES.MODEL_CONSTRUCTOR);
-		Object.assign(instance, obj);
-		instance[MODEL_INSTANCE_META].dirty.clear();
-		return instance;
+		return new this(MODEL_CONSTRUCTOR, obj);
 	}
 
 	private eventListeners = new Map<ModelEvent, Set<ModelEventHandler>>();

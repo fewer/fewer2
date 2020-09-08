@@ -1,5 +1,5 @@
 import { Model } from './model';
-import { INTERNAL_TYPES } from './types';
+import { ASSOCIATION_META } from './types';
 
 export enum AssociationType {
 	BELONGS_TO = 'BELONGS_TO',
@@ -8,7 +8,7 @@ export enum AssociationType {
 }
 
 export interface Association<T> {
-	[INTERNAL_TYPES.ASSOCIATION_META]: {
+	[ASSOCIATION_META]: {
 		type: AssociationType;
 		model: typeof Model;
 	};
@@ -17,7 +17,7 @@ export interface Association<T> {
 
 export function belongsTo<T extends typeof Model>(model: T): Association<T> {
 	return {
-		[INTERNAL_TYPES.ASSOCIATION_META]: {
+		[ASSOCIATION_META]: {
 			type: AssociationType.BELONGS_TO,
 			model,
 		},
@@ -29,7 +29,7 @@ export function belongsTo<T extends typeof Model>(model: T): Association<T> {
 
 export function hasMany<T extends typeof Model>(model: T): Association<T[]> {
 	return {
-		[INTERNAL_TYPES.ASSOCIATION_META]: {
+		[ASSOCIATION_META]: {
 			type: AssociationType.HAS_MANY,
 			model,
 		},

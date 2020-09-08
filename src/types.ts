@@ -1,31 +1,19 @@
 import { Column } from './columns';
 import { Model } from './model';
 
-const ALL_FIELDS: unique symbol = Symbol('fewer/all');
-const ASSOCIATION_META: unique symbol = Symbol('fewer/association');
-const COLUMN_META: unique symbol = Symbol('fewer/column');
-const MODEL_CONSTRUCTOR: unique symbol = Symbol('fewer/construct');
+export const ALL_FIELDS: unique symbol = Symbol('fewer/all');
+export const ASSOCIATION_META: unique symbol = Symbol('fewer/association');
+export const COLUMN_META: unique symbol = Symbol('fewer/column');
+export const MODEL_CONSTRUCTOR: unique symbol = Symbol('fewer/construct');
 export const MODEL_STATIC_META: unique symbol = Symbol('fewer/model_static');
 export const MODEL_INSTANCE_META: unique symbol = Symbol(
 	'fewer/model_instance',
 );
 
-// TODO: Just get rid of these internal types and use the exported symbols directly, there's no point in the object indirection.
-export const INTERNAL_TYPES = {
-	ALL_FIELDS,
-	ASSOCIATION_META,
-	COLUMN_META,
-	MODEL_CONSTRUCTOR,
-	MODEL_STATIC_META,
-	MODEL_INSTANCE_META,
-} as const;
-
-export type INTERNAL_TYPES = typeof INTERNAL_TYPES;
-
 export type CreateSelectionSet<
 	Original,
 	Additional
-> = Original extends INTERNAL_TYPES['ALL_FIELDS']
+> = Original extends typeof ALL_FIELDS
 	? Additional
 	: Original | Additional;
 
@@ -33,7 +21,7 @@ export type NeverProperties<T> = {
 	[K in keyof T]: T[K] extends never ? K : never;
 }[keyof T];
 
-export type Subset<Root, Keys> = [Keys] extends [INTERNAL_TYPES['ALL_FIELDS']]
+export type Subset<Root, Keys> = [Keys] extends [typeof ALL_FIELDS]
 	? Root
 	: { [P in keyof Root & Keys]: Root[P] };
 

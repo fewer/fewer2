@@ -2,9 +2,9 @@ import { Model } from './model';
 import { getConnection } from './connect';
 import { ModelInstance } from './modelinstance';
 import {
+	ALL_FIELDS,
 	ColumnTypes,
 	CreateSelectionSet,
-	INTERNAL_TYPES,
 	MODEL_INSTANCE_META,
 } from './types';
 
@@ -25,7 +25,7 @@ type QueryMeta = {
 
 export class QueryBuilder<
 	ModelType extends typeof Model,
-	Plucked = INTERNAL_TYPES['ALL_FIELDS'],
+	Plucked = typeof ALL_FIELDS,
 	Count = ResultCount.MANY,
 	Result = Count extends ResultCount.MANY
 		? ModelInstance<ModelType, Plucked>[]
