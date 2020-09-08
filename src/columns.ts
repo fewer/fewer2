@@ -1,4 +1,5 @@
 import { ColumnBuilder, TableBuilder } from 'knex';
+import { Model } from './model';
 import { COLUMN_META } from './types';
 
 export type SchemaConfig = {
@@ -33,12 +34,32 @@ export type ColumnResult = {
 	[COLUMN_META]: ColumnMeta;
 };
 
-const ColumnType: unique symbol = Symbol('fewer/type');
-export type Column<T> =
-	| T
-	| (T & {
-			__type__: T;
-	  });
+const ColumnType: unique symbol = Symbol('fewer/column_type');
+
+type ColumnBrand<T> = {
+	[ColumnType]: T;
+};
+
+export type Column<T, U = ColumnBrand<T>> = T | (T & U);
+
+type ColumnBrands<T> = {
+	[K in keyof T]: T[K] extends Column<infer T, infer U> ? U & false : never;
+};
+
+export type Columns<
+	T extends typeof Model,
+	TInstance = ColumnBrands<InstanceType<T>>
+> = Exclude<
+	{
+		[K in keyof TInstance]: TInstance[K] extends Exclude<
+			ColumnBrand<any>,
+			false
+		>
+			? K
+			: never;
+	}[keyof TInstance],
+	undefined
+>;
 
 export function column<Type, Nullable extends boolean = false>(
 	schemaConfig?: SchemaConfig,

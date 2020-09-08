@@ -1,7 +1,9 @@
 import { belongsTo, hasMany } from './associations';
+import { Columns } from './columns';
 import { connect } from './connect';
 import { incrementing, int, text } from './databases/sqlite';
 import { Model } from './model';
+import { NonColumnTypes } from './types';
 
 class User extends Model {
 	id = incrementing({ primaryKey: true });
@@ -42,9 +44,9 @@ async function main() {
 		User.preload()
 	]);
 
-	await User.create({
+	const jordan = User.create({
 		name: 'jordan',
-	}).save();
+	});
 
 	const mewtru = await User.create({
 		name: 'mewtru',
@@ -57,7 +59,6 @@ async function main() {
 	console.log(mewtru);
 
 	const u = await User.find(mewtru.id!).pluck('id', 'name');
-	console.log(u);
 	// const user = await User.pluck('age');
 	// user.save();
 	// const u = await User.where({});

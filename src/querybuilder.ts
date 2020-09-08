@@ -7,6 +7,7 @@ import {
 	CreateSelectionSet,
 	MODEL_INSTANCE_META,
 } from './types';
+import { Columns } from './columns';
 
 enum ResultCount {
 	MANY = 'MANY',
@@ -62,7 +63,7 @@ export class QueryBuilder<
 		});
 	}
 
-	pluck<NewKeys extends keyof ColumnTypes<ModelType>>(
+	pluck<NewKeys extends Columns<ModelType>>(
 		...keys: NewKeys[]
 	): QueryBuilder<ModelType, CreateSelectionSet<Plucked, NewKeys>, Count> {
 		return this.__next__({

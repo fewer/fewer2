@@ -14,7 +14,7 @@ import { getConnection } from './connect';
 import { AssociationType } from './associations';
 import { getConfig } from './config';
 import { takeRight } from 'lodash';
-import { ColumnMeta } from './columns';
+import { ColumnMeta, Columns } from './columns';
 import { buildTableForModel } from './tables/buildTable';
 
 type ModelEvent = 'save' | 'destroy';
@@ -212,7 +212,7 @@ export class Model {
 
 	static where<T extends typeof Model>(
 		this: T,
-		conditions: Partial<ColumnTypes<T>>,
+		conditions: Partial<Columns<T>>,
 	) {
 		return new QueryBuilder<T>({
 			modelType: this,
@@ -220,10 +220,10 @@ export class Model {
 		});
 	}
 
-	static create<T extends typeof Model>(
+	static create<T extends typeof Model, U extends Partial<ColumnTypes<T>>>(
 		this: T,
-		obj: Partial<ColumnTypes<T>>,
-	): ModelInstance<T> {
+		obj: U,
+	): U & ModelInstance<T> {
 		// TODO: Rather than Object.assign() after the fact, we should pass these into the constructor directly,
 		// So that we can correctly initialize the column default values.
 		return new this(MODEL_CONSTRUCTOR, obj);
