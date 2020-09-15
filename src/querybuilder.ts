@@ -109,10 +109,10 @@ export class QueryBuilder<
 	}
 
 	private async executeQuery() {
-		let query = getConnection().select();
+		let query = getConnection(this.meta.modelType.database).knex.select();
 
 		if (this.meta.plucked) {
-			// TODO: Always load the primary key.
+			// TODO: Always load the primary key???
 			query = query.select(...this.meta.plucked);
 		}
 
@@ -137,7 +137,6 @@ export class QueryBuilder<
 		};
 
 		const value = await query;
-		let returnValue;
 
 		if (this.meta.resultCount === ResultCount.SINGLE) {
 			// TODO: What if it isn't here.

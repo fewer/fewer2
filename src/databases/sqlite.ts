@@ -1,4 +1,23 @@
+import knex from 'knex';
 import { createColumnType } from '../columns';
+import { Database } from '../database';
+
+export class SQLiteDatabase extends Database<
+	'sqlite',
+	{
+		database: string;
+	}
+> {
+	async connect() {
+		return knex({
+			client: 'sqlite3',
+			useNullAsDefault: true,
+			connection: {
+				filename: this.config.database,
+			},
+		});
+	}
+}
 
 export const incrementing = createColumnType<number>({
 	columnType: 'increments',

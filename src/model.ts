@@ -12,10 +12,9 @@ import generateTableName from './utils/generateTableName';
 import { ModelInstance } from './modelinstance';
 import { getConnection } from './connect';
 import { AssociationType } from './associations';
-import { getConfig } from './config';
-import { takeRight } from 'lodash';
 import { ColumnMeta, Columns } from './columns';
 import { buildTableForModel } from './tables/buildTable';
+import { Database } from './database';
 
 type ModelEvent = 'save' | 'destroy';
 type ModelEventHandler = () => void | Promise<void>;
@@ -38,29 +37,37 @@ type ModelInstanceMeta = {
 export const models = new Set<typeof Model>();
 
 export function getStaticMeta(
-	modelOrClass: Model | typeof Model,
+	instanceOrClass: Model | typeof Model,
 ): ModelStaticMeta {
-	if (modelOrClass instanceof Model) {
-		return (modelOrClass.constructor as typeof Model)[MODEL_STATIC_META];
+	if (instanceOrClass instanceof Model) {
+		return (instanceOrClass.constructor as typeof Model)[MODEL_STATIC_META];
 	}
-	return modelOrClass[MODEL_STATIC_META];
+	return instanceOrClass[MODEL_STATIC_META];
+}
+
+function setStaticMeta(instance: Model, meta: ModelStaticMeta) {
+	return ((instance.constructor as typeof Model)[MODEL_STATIC_META] = meta);
 }
 
 export class Model {
-	static tableName?: string;
+	static database?: Database;
 
 	private static [MODEL_STATIC_META]: ModelStaticMeta;
 	private [MODEL_INSTANCE_META]: ModelInstanceMeta;
 
+	static for(database: Database) {
+		return class ModelForDatabase extends Model {
+			static database = database;
+		};
+	}
+
 	constructor(
+		// TODO: Do we really need this, or can we just document this better?
 		please_use_create_to_construct_entities: typeof MODEL_CONSTRUCTOR,
 		initialValues: object = {},
 		bypassInitialize: boolean = false,
 	) {
-		if (
-			please_use_create_to_construct_entities !==
-			MODEL_CONSTRUCTOR
-		) {
+		if (please_use_create_to_construct_entities !== MODEL_CONSTRUCTOR) {
 			throw new Error(
 				'Model instances cannot be created with the new keyword. Instead, use Model.create().',
 			);
@@ -85,7 +92,7 @@ export class Model {
 		if (!getStaticMeta(this)) {
 			models.add(this.constructor as any);
 			isDefiningStaticMeta = true;
-			this.setStaticMeta({
+			setStaticMeta(this, {
 				primaryKey: '',
 				tableName:
 					(this.constructor as typeof Model).tableName ??
@@ -122,8 +129,7 @@ export class Model {
 
 					if (isColumn(value)) {
 						if (
-							value[COLUMN_META].config
-								?.primaryKey &&
+							value[COLUMN_META].config?.primaryKey &&
 							isDefiningStaticMeta
 						) {
 							if (staticMeta.primaryKey) {
@@ -177,10 +183,6 @@ export class Model {
 		});
 	}
 
-	private setStaticMeta(staticMeta: ModelStaticMeta) {
-		(this.constructor as any)[MODEL_STATIC_META] = staticMeta;
-	}
-
 	/**
 	 * Ensure that a model's tables have been initalized. This should only
 	 * be used internally, and at some point probably should be removed.
@@ -195,7 +197,7 @@ export class Model {
 
 		new this(MODEL_CONSTRUCTOR, {}, true);
 
-		if (getConfig().synchronize) {
+		if (getConnection(this.database).database.config.synchronize) {
 			await buildTableForModel(this);
 		}
 	}
@@ -224,8 +226,6 @@ export class Model {
 		this: T,
 		obj: U,
 	): U & ModelInstance<T> {
-		// TODO: Rather than Object.assign() after the fact, we should pass these into the constructor directly,
-		// So that we can correctly initialize the column default values.
 		return new this(MODEL_CONSTRUCTOR, obj);
 	}
 
@@ -240,12 +240,14 @@ export class Model {
 		const staticMeta = getStaticMeta(that);
 
 		await that.trigger('save');
-		const connection = getConnection();
+		const { knex } = getConnection(
+			(that.constructor as typeof Model).database,
+		);
 
 		if (instanceMeta.exists) {
 			const updateObject = pick(that, [...instanceMeta.dirty]);
 
-			await connection
+			await knex
 				.table(staticMeta.tableName)
 				.where({
 					[staticMeta.primaryKey]: that[staticMeta.primaryKey],
@@ -254,7 +256,7 @@ export class Model {
 		} else {
 			const insertObject = pick(that, [...staticMeta.columns]);
 
-			const [id] = await connection
+			const [id] = await knex
 				.table(staticMeta.tableName)
 				.insert(insertObject);
 

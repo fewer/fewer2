@@ -1,9 +1,14 @@
 import { belongsTo, hasMany } from './associations';
 import { Columns } from './columns';
 import { connect } from './connect';
-import { incrementing, int, text } from './databases/sqlite';
+import { incrementing, int, SQLiteDatabase, text } from './databases/sqlite';
 import { Model } from './model';
 import { NonColumnTypes } from './types';
+
+const database = new SQLiteDatabase({
+	database: ':memory:',
+	synchronize: true,
+});
 
 class User extends Model {
 	id = incrementing({ primaryKey: true });
@@ -32,17 +37,10 @@ class Post extends Model {
 }
 
 async function main() {
-	await connect({
-		type: 'sqlite',
-		database: ':memory:',
-		synchronize: true
-	});
+	await connect(database);
 
 	// Preload the models to ensure the tables for them have been created and they are ready to be used freely.
-	await Promise.all([
-		Post.preload(),
-		User.preload()
-	]);
+	await Promise.all([Post.preload(), User.preload()]);
 
 	const jordan = User.create({
 		name: 'jordan',

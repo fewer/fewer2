@@ -4,11 +4,14 @@ import { getStaticMeta, Model } from '../model';
 
 // TODO: Update the table / columns if it already exists.
 export async function buildTableForModel(model: typeof Model) {
-	const connection = getConnection();
+	const { knex } = getConnection(model.database);
 	const staticMeta = getStaticMeta(model);
 
-	await connection.schema.createTable(staticMeta.tableName, (table) => {
-		for (const [columnName, columnDescription] of staticMeta.columnDefinitions) {
+	await knex.schema.createTable(staticMeta.tableName, (table) => {
+		for (const [
+			columnName,
+			columnDescription,
+		] of staticMeta.columnDefinitions) {
 			let column: ColumnBuilder;
 			if (columnDescription.schemaConfig.fk) {
 				// TODO: The foreign keys aren't always integers/
