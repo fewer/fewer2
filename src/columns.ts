@@ -1,4 +1,5 @@
 import { ColumnBuilder, TableBuilder } from 'knex';
+import { AssociationMeta } from './associations';
 import { Model } from './model';
 import { COLUMN_META } from './types';
 
@@ -28,6 +29,7 @@ export type ColumnConfig<Nullable extends boolean> = (Nullable extends true
 export type ColumnMeta = {
 	config: ColumnConfig<boolean>;
 	schemaConfig: SchemaConfig;
+	association?: AssociationMeta;
 };
 
 export type ColumnResult = {
@@ -60,6 +62,14 @@ export type Columns<
 	}[keyof TInstance],
 	undefined
 >;
+
+export function foreignKey(associationMeta: AssociationMeta): ColumnMeta {
+	return {
+		schemaConfig: { fk: true },
+		config: {},
+		association: associationMeta,
+	};
+}
 
 export function column<Type, Nullable extends boolean = false>(
 	schemaConfig?: SchemaConfig,

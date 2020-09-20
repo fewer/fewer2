@@ -7,12 +7,16 @@ export enum AssociationType {
 	HAS_ONE = 'HAS_ONE',
 }
 
-export interface Association<T> {
+export type AssociationMeta = {
+	type: AssociationType;
+	model: typeof Model;
+};
+
+export interface Association<T = any> {
 	[ASSOCIATION_META]: {
 		type: AssociationType;
 		model: typeof Model;
 	};
-	get(): T;
 }
 
 export function belongsTo<T extends typeof Model>(model: T): Association<T> {
@@ -20,9 +24,6 @@ export function belongsTo<T extends typeof Model>(model: T): Association<T> {
 		[ASSOCIATION_META]: {
 			type: AssociationType.BELONGS_TO,
 			model,
-		},
-		get() {
-			return {} as any;
 		},
 	};
 }
@@ -32,9 +33,6 @@ export function hasMany<T extends typeof Model>(model: T): Association<T[]> {
 		[ASSOCIATION_META]: {
 			type: AssociationType.HAS_MANY,
 			model,
-		},
-		get() {
-			return {} as any;
 		},
 	};
 }

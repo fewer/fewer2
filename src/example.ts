@@ -1,9 +1,7 @@
 import { belongsTo, hasMany } from './associations';
-import { Columns } from './columns';
 import { connect } from './connect';
 import { incrementing, int, SQLiteDatabase, text } from './databases/sqlite';
 import { Model } from './model';
-import { NonColumnTypes } from './types';
 
 const database = new SQLiteDatabase({
 	database: ':memory:',
@@ -20,7 +18,9 @@ class User extends Model {
 
 	posts = hasMany(Post);
 
-	initialize() {
+	constructor(initialValues: Partial<User>) {
+		super(initialValues);
+
 		this.on('save', async () => {
 			if (this.password) {
 				this.passwordHash = this.password.toLowerCase();

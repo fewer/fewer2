@@ -4,7 +4,6 @@ import { Model } from './model';
 export const ALL_FIELDS: unique symbol = Symbol('fewer/all');
 export const ASSOCIATION_META: unique symbol = Symbol('fewer/association');
 export const COLUMN_META: unique symbol = Symbol('fewer/column');
-export const MODEL_CONSTRUCTOR: unique symbol = Symbol('fewer/construct');
 export const MODEL_STATIC_META: unique symbol = Symbol('fewer/model_static');
 export const MODEL_INSTANCE_META: unique symbol = Symbol(
 	'fewer/model_instance',

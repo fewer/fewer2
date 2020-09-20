@@ -1,4 +1,4 @@
-import { Model } from './model';
+import { getStaticMeta, Model } from './model';
 import { getConnection } from './connect';
 import { ModelInstance } from './modelinstance';
 import {
@@ -16,7 +16,6 @@ enum ResultCount {
 
 type QueryMeta = {
 	modelType: typeof Model;
-	tableName: string;
 	where?: any;
 	plucked?: string[];
 	limit?: number;
@@ -110,13 +109,15 @@ export class QueryBuilder<
 
 	private async executeQuery() {
 		let query = getConnection(this.meta.modelType.database).knex.select();
+		const staticMeta = getStaticMeta(this.meta.modelType);
 
 		if (this.meta.plucked) {
-			// TODO: Always load the primary key???
-			query = query.select(...this.meta.plucked);
+			query = query.select(
+				...new Set([...this.meta.plucked, staticMeta.primaryKey]),
+			);
 		}
 
-		query = query.from(this.meta.tableName);
+		query = query.from(staticMeta.tableName);
 
 		if (this.meta.where) {
 			query = query.where(this.meta.where);

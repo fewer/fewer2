@@ -1,6 +1,49 @@
-import { ColumnBuilder } from 'knex';
+import { ColumnBuilder, TableBuilder } from 'knex';
+import { ColumnMeta } from '../columns';
 import { getConnection } from '../connect';
 import { getStaticMeta, Model } from '../model';
+
+function createColumn(
+	table: TableBuilder,
+	name: string,
+	columnDescription: ColumnMeta,
+	applyModifiers = true,
+) {
+	let column: ColumnBuilder;
+	const { schemaConfig, config, association } = columnDescription;
+
+	if (schemaConfig.fk) {
+		const associationStaticMeta = getStaticMeta(
+			columnDescription.association!.model,
+		);
+		column = createColumn(
+			table,
+			name,
+			associationStaticMeta.columnDefinitions.get(
+				associationStaticMeta.primaryKey,
+			)!,
+			// Don't apply the modifiers, so that the foreign key is not a primary key as well.
+			false,
+		);
+	} else if (columnDescription.schemaConfig.columnBuilder) {
+		column = columnDescription.schemaConfig.columnBuilder(
+			name,
+			columnDescription.config,
+			table,
+		);
+	} else {
+		// @ts-ignore: This index works:
+		column = table[schemaConfig.columnType!](name);
+	}
+
+	if (applyModifiers) {
+		if (config?.primaryKey) column.primary();
+		if (config?.nullable) column.nullable();
+		if (config?.unique) column.unique();
+	}
+
+	return column;
+}
 
 // TODO: Update the table / columns if it already exists.
 export async function buildTableForModel(model: typeof Model) {
@@ -12,42 +55,20 @@ export async function buildTableForModel(model: typeof Model) {
 			columnName,
 			columnDescription,
 		] of staticMeta.columnDefinitions) {
-			let column: ColumnBuilder;
+			createColumn(table, columnName, columnDescription);
+
 			if (columnDescription.schemaConfig.fk) {
-				// TODO: The foreign keys aren't always integers/
-				// Instead, we need to mirror the type of the primary key.
-				column = table.integer(columnName).unsigned();
+				// Add the foreign key:
 				table
 					.foreign(columnName)
 					.references(
-						getStaticMeta(columnDescription.config.model)
+						getStaticMeta(columnDescription.association!.model)
 							.primaryKey,
 					)
 					.inTable(
-						getStaticMeta(columnDescription.config.model).tableName,
+						getStaticMeta(columnDescription.association!.model)
+							.tableName,
 					);
-			} else if (columnDescription.schemaConfig.columnBuilder) {
-				column = columnDescription.schemaConfig.columnBuilder(
-					columnName,
-					columnDescription.config,
-					table,
-				);
-			} else {
-				column = table[columnDescription.schemaConfig.columnType!](
-					columnName,
-				);
-			}
-
-			if (column) {
-				if (columnDescription.config?.primaryKey) {
-					column.primary();
-				}
-				if (columnDescription.config?.nullable) {
-					column.nullable();
-				}
-				if (columnDescription.config?.unique) {
-					column.unique();
-				}
 			}
 		}
 	});

@@ -1,9 +1,9 @@
 import pick from 'lodash/pick';
 import { QueryBuilder } from './querybuilder';
 import {
+	ASSOCIATION_META,
 	ColumnTypes,
 	COLUMN_META,
-	MODEL_CONSTRUCTOR,
 	MODEL_INSTANCE_META,
 	MODEL_STATIC_META,
 } from './types';
@@ -12,7 +12,7 @@ import generateTableName from './utils/generateTableName';
 import { ModelInstance } from './modelinstance';
 import { getConnection } from './connect';
 import { AssociationType } from './associations';
-import { ColumnMeta, Columns } from './columns';
+import { ColumnMeta, Columns, foreignKey } from './columns';
 import { buildTableForModel } from './tables/buildTable';
 import { Database } from './database';
 
@@ -50,6 +50,7 @@ function setStaticMeta(instance: Model, meta: ModelStaticMeta) {
 }
 
 export class Model {
+	static tableName?: string;
 	static database?: Database;
 
 	private static [MODEL_STATIC_META]: ModelStaticMeta;
@@ -61,18 +62,7 @@ export class Model {
 		};
 	}
 
-	constructor(
-		// TODO: Do we really need this, or can we just document this better?
-		please_use_create_to_construct_entities: typeof MODEL_CONSTRUCTOR,
-		initialValues: object = {},
-		bypassInitialize: boolean = false,
-	) {
-		if (please_use_create_to_construct_entities !== MODEL_CONSTRUCTOR) {
-			throw new Error(
-				'Model instances cannot be created with the new keyword. Instead, use Model.create().',
-			);
-		}
-
+	constructor(initialValues: object = {}) {
 		Promise.resolve().then(() => {
 			const staticMeta = getStaticMeta(this);
 			if (!staticMeta.primaryKey) {
@@ -81,11 +71,6 @@ export class Model {
 				);
 			}
 		});
-
-		// TODO: Maybe initalize will need to be called somewhere else?
-		if (!bypassInitialize && this.initialize) {
-			this.initialize();
-		}
 
 		// If this is the first time this model has been initialized, we need to fill in the static metadata:
 		let isDefiningStaticMeta = false;
@@ -157,20 +142,20 @@ export class Model {
 						}
 					}
 
-					// TODO: Enable this.
-					// if (
-					// 	isAssociation(value) &&
-					// 	value[ASSOCIATION_META].type ===
-					// 		AssociationType.BELONGS_TO
-					// ) {
-					// 	// TODO: Build this by exposing a `foreignKey()` directly in the columns export.
-					// 	tableColumns!.set(`${property}Id`, {
-					// 		schemaConfig: {
-					// 			fk: true,
-					// 		},
-					// 		config: value[ASSOCIATION_META],
-					// 	});
-					// }
+					if (
+						isAssociation(value) &&
+						value[ASSOCIATION_META].type ===
+							AssociationType.BELONGS_TO
+					) {
+						const columnName = `${property}Id`;
+
+						if (!staticMeta.columnDefinitions.has(columnName)) {
+							staticMeta.columnDefinitions.set(
+								`${property}Id`,
+								foreignKey(value[ASSOCIATION_META]),
+							);
+						}
+					}
 				} else {
 					if (staticMeta.columns.has(property as string)) {
 						this[MODEL_INSTANCE_META].dirty.add(property as string);
@@ -195,7 +180,7 @@ export class Model {
 			return;
 		}
 
-		new this(MODEL_CONSTRUCTOR, {}, true);
+		new this({});
 
 		if (getConnection(this.database).database.config.synchronize) {
 			await buildTableForModel(this);
@@ -205,7 +190,6 @@ export class Model {
 	static find<T extends typeof Model>(this: T, primaryKey: number | string) {
 		return new QueryBuilder<T>({
 			modelType: this,
-			tableName: getStaticMeta(this).tableName,
 			where: {
 				[this[MODEL_STATIC_META].primaryKey]: primaryKey,
 			},
@@ -218,7 +202,6 @@ export class Model {
 	) {
 		return new QueryBuilder<T>({
 			modelType: this,
-			tableName: getStaticMeta(this).tableName,
 		});
 	}
 
@@ -226,12 +209,10 @@ export class Model {
 		this: T,
 		obj: U,
 	): U & ModelInstance<T> {
-		return new this(MODEL_CONSTRUCTOR, obj);
+		return new this(obj);
 	}
 
 	private eventListeners = new Map<ModelEvent, Set<ModelEventHandler>>();
-
-	initialize?(): void;
 
 	async save<T>(this: T): Promise<T> {
 		// This allows us to get some sensible types.
